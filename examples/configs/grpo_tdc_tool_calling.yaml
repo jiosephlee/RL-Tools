@@ -157,14 +157,14 @@ policy:
     moe_router_dtype: "fp64"
     moe_router_load_balancing_type: "none"
     moe_router_bias_update_rate: 0.0
-    moe_permute_fusion: false
+    moe_permute_fusion: false # better to do true?
     apply_rope_fusion: true
     bias_activation_fusion: true
-    defer_fp32_logits: false
+    defer_fp32_logits: false # better to do true?
     moe_per_layer_logging: false
     moe_enable_deepep: false
     moe_token_dispatcher_type: "alltoall"
-    moe_shared_expert_overlap: false
+    moe_shared_expert_overlap: false # better to do true?
     peft:
       enabled: false
       target_modules: []
