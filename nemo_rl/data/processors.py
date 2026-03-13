@@ -30,7 +30,7 @@ from nemo_rl.data.interfaces import (
     VLMMessageLogType,
 )
 from nemo_rl.data.llm_message_utils import get_formatted_message_log
-from nemo_rl.data.processors.tdc_processor import tdc_data_processor
+from nemo_rl.data.tdc_processor import tdc_data_processor
 
 TokenizerType = PreTrainedTokenizerBase
 
