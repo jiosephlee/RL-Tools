@@ -307,11 +307,13 @@ data:
   num_workers: 2
   use_multiple_dataloader: false
   train:
-    data_path: ResponseDataset    # REQUIRED: set via CLI or env
+    dataset_name: ResponseDataset
+    data_path: null  # REQUIRED: set via CLI or env
     input_key: messages
     output_key: answer
   validation:
-    data_path: ResponseDataset  # REQUIRED: set via CLI or env
+    dataset_name: ResponseDataset
+    data_path: null  # REQUIRED: set via CLI or env
     input_key: messages
     output_key: answer
   default:
