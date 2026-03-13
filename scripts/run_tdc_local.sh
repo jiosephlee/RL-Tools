@@ -8,9 +8,16 @@
 
 set -euo pipefail
 
+# Use a fresh temp dir
+export RAY_TMPDIR="/tmp/ray_fresh_${USER}_$(date +%s)"
+mkdir -p "$RAY_TMPDIR"
+
+# Also try increasing the socket timeout
+export RAY_BACKEND_LOG_LEVEL=warning
+
 ### ARGS ###
 MODEL="${MODEL:-unsloth/gpt-oss-20b-BF16}"
-NUM_GPUS="${NUM_GPUS:-1}"
+NUM_GPUS="${NUM_GPUS:-2}"
 MAX_STEPS="${MAX_STEPS:-10}"
 MAX_TURNS="${MAX_TURNS:-30}"
 MULTI_TURN="${MULTI_TURN:-1}"
@@ -24,6 +31,7 @@ NUM_PROMPTS="${NUM_PROMPTS:-8}"
 NUM_GENS="${NUM_GENS:-8}"
 TRAIN_GLOBAL_BS="${TRAIN_GLOBAL_BS:-64}"
 VAL_PERIOD="${VAL_PERIOD:-16}"
+VLLM_GPU_MEM_UTIL="${VLLM_GPU_MEM_UTIL:-0.5}"
 EXTRA_OVERRIDES="${EXTRA_OVERRIDES:-}"
 
 ### PROJECT ROOT ###
@@ -85,8 +93,8 @@ OVERRIDES=(
 # Tensor parallelism for multi-GPU
 if [ "$NUM_GPUS" -gt 1 ]; then
     OVERRIDES+=(
-        "policy.dtensor_cfg.tensor_parallel_size=$NUM_GPUS"
-        "policy.generation.vllm_cfg.tensor_parallel_size=$NUM_GPUS"
+        "policy.dtensor_cfg.tensor_parallel_size=1"
+        "policy.generation.vllm_cfg.tensor_parallel_size=1"
     )
 fi
 

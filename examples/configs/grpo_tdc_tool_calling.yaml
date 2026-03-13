@@ -33,14 +33,14 @@ grpo:
   normalize_rewards: true
   use_leave_one_out_baseline: true
   val_period: 32
-  val_at_start: false
+  val_at_start: true
   val_at_end: true
   overlong_filtering: false
-  max_val_samples: 64
+  max_val_samples: -1
   val_batch_size: 64
   seed: 42
-  use_dynamic_sampling: false
-  dynamic_sampling_max_gen_batches: 10
+  use_dynamic_sampling: true
+  dynamic_sampling_max_gen_batches: 100
   batch_multiplier: 1
   reward_shaping:
     enabled: false
@@ -93,7 +93,7 @@ loss_fn:
   loss_type: "grpo"  # grpo, ipo, simpo
 
 checkpointing:
-  enabled: true
+  enabled: false
   checkpoint_dir: "results/grpo_tdc"
   metric_name: "val:accuracy"
   higher_is_better: true
@@ -104,7 +104,7 @@ checkpointing:
   save_consolidated: false
 
 policy:
-  model_name: "Qwen/Qwen2.5-1.5B"
+  model_name: "unsloth/gpt-oss-20b-BF16"
   tokenizer:
     name: ${policy.model_name}
     chat_template_kwargs: null
@@ -113,7 +113,7 @@ policy:
   train_micro_batch_size: 4
   generation_batch_size: 8
   logprob_batch_size: ${policy.train_micro_batch_size}
-  max_total_sequence_length: 2048
+  max_total_sequence_length: 8192
   precision: "bfloat16"
   logprob_chunk_size: null
   offload_optimizer_for_logprob: false
@@ -143,10 +143,10 @@ policy:
     enabled: false
     empty_unused_memory_level: 1
     activation_checkpointing: false
-    converter_type: "Qwen2ForCausalLM"
+    converter_type: "GPTOSSForCausalLM"
     tensor_model_parallel_size: 1
     expert_tensor_parallel_size: 1
-    expert_model_parallel_size: 1
+    expert_model_parallel_size: 2
     pipeline_model_parallel_size: 1
     num_layers_in_first_pipeline_stage: null
     num_layers_in_last_pipeline_stage: null
@@ -178,9 +178,9 @@ policy:
       a2a_experimental: false
       lora_dtype: null
     optimizer:
-      optimizer: "adam"
-      lr: 5.0e-6
-      min_lr: 5.0e-7
+      optimizer: "adamW"
+      lr: 5.0e-7
+      min_lr: 5.0e-8
       weight_decay: 0.01
       bf16: true
       fp16: false
@@ -239,7 +239,7 @@ policy:
       betas: [0.9, 0.999]
       eps: 1e-8
       foreach: false
-      fused: false
+      fused: true
 
   scheduler:
     - name: "torch.optim.lr_scheduler.LinearLR"
@@ -304,14 +304,14 @@ policy:
 data:
   max_input_seq_length: ${policy.max_total_sequence_length}
   shuffle: true
-  num_workers: 1
+  num_workers: 2
   use_multiple_dataloader: false
   train:
-    data_path: null  # REQUIRED: set via CLI or env
+    data_path: ResponseDataset    # REQUIRED: set via CLI or env
     input_key: messages
     output_key: answer
   validation:
-    data_path: null  # REQUIRED: set via CLI or env
+    data_path: ResponseDataset  # REQUIRED: set via CLI or env
     input_key: messages
     output_key: answer
   default:
