@@ -14,7 +14,7 @@
 
 ### ARGS ###
 MODEL="${MODEL:-unsloth/gpt-oss-20b-BF16}"
-NUM_GPUS="${NUM_GPUS:-2}"
+NUM_GPUS="${NUM_GPUS:-1}"
 MAX_STEPS="${MAX_STEPS:-10}"
 MAX_TURNS="${MAX_TURNS:-30}"
 MULTI_TURN="${MULTI_TURN:-1}"

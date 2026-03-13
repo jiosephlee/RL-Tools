@@ -146,7 +146,7 @@ policy:
     converter_type: "GPTOSSForCausalLM"
     tensor_model_parallel_size: 1
     expert_tensor_parallel_size: 1
-    expert_model_parallel_size: 2
+    expert_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     num_layers_in_first_pipeline_stage: null
     num_layers_in_last_pipeline_stage: null
