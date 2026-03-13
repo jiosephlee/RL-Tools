@@ -98,6 +98,14 @@ def init_ray(log_dir: Optional[str] = None) -> None:
     Args:
         log_dir: Optional directory to store Ray logs and temp files.
     """
+    # Force short temp dir to keep Unix socket paths under the 107-byte limit.
+    # HPC systems often set TMPDIR to long paths (e.g. /vast/...) which causes
+    # Ray socket EOF errors.
+    short_tmp = "/tmp/ray"
+    os.environ["TMPDIR"] = "/tmp"
+    os.environ["RAY_TMPDIR"] = short_tmp
+    os.makedirs(short_tmp, exist_ok=True)
+
     # Set up runtime environment
     env_vars = dict(os.environ)
     env_vars.pop("RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES", None)
