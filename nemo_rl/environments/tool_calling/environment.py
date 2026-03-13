@@ -63,24 +63,42 @@ class ToolCallingEnvironment(EnvironmentInterface[ToolCallingMetadata]):
     the latest assistant message, executes any tool calls, and returns
     observations for the next turn.
 
-    Args:
-        protocol: ChatProtocol instance for parsing/rendering.
-        registry: ToolRegistry with registered tool callables.
-        max_turns: Maximum number of tool-calling turns before forced termination.
-        reward_fn: Optional callable (generated_text, label) -> float for terminal reward.
+    Accepts a config dict (matching create_env() convention) with keys:
+        chat_protocol: Protocol name (default: "gpt_oss").
+        max_turns: Maximum tool-calling turns (default: 10).
+        tools_file: Optional path to tool schemas JSON.
+        reward_fn: Optional reward function name.
+
+    Or can be constructed directly with protocol/registry objects.
     """
 
     def __init__(
         self,
-        protocol: ChatProtocol,
-        registry: ToolRegistry,
+        cfg: Optional[dict[str, Any]] = None,
+        protocol: Optional[ChatProtocol] = None,
+        registry: Optional[ToolRegistry] = None,
         max_turns: int = 10,
         reward_fn: Optional[Callable[[str, str], float]] = None,
     ):
-        self.protocol = protocol
-        self.registry = registry
-        self.max_turns = max_turns
-        self.reward_fn = reward_fn
+        if cfg is not None:
+            # Config-based init (called by create_env)
+            from nemo_rl.environments.tool_calling.chat_protocol import get_protocol
+            from nemo_rl.environments.tool_calling.tools import get_default_tools
+
+            self.protocol = get_protocol(cfg.get("chat_protocol", "gpt_oss"))
+            self.registry = ToolRegistry()
+            self.registry.register_callables(get_default_tools())
+            if "tools_file" in cfg:
+                self.registry.load_schemas_from_file(cfg["tools_file"])
+            self.max_turns = cfg.get("max_turns", 10)
+            self.reward_fn = None
+        else:
+            # Direct init (for tests or programmatic use)
+            assert protocol is not None and registry is not None
+            self.protocol = protocol
+            self.registry = registry
+            self.max_turns = max_turns
+            self.reward_fn = reward_fn
 
     def step(
         self,
