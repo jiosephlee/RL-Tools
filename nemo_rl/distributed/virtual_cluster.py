@@ -105,6 +105,9 @@ def init_ray(log_dir: Optional[str] = None) -> None:
         "env_vars": env_vars,  # Pass thru all user environment variables
     }
 
+    # Resolve temp dir: explicit log_dir > RAY_TMPDIR env var > None (Ray default)
+    temp_dir = os.path.abspath(log_dir) if log_dir else os.environ.get("RAY_TMPDIR")
+
     cvd = os.environ.get("CUDA_VISIBLE_DEVICES", "ALL")
     # sort cvd to ensure consistent tag
     cvd = ",".join(sorted(cvd.split(",")))
@@ -118,7 +121,7 @@ def init_ray(log_dir: Optional[str] = None) -> None:
             log_to_driver=True,
             include_dashboard=False,
             runtime_env=runtime_env,
-            _temp_dir=os.path.abspath(log_dir) if log_dir else None,
+            _temp_dir=temp_dir,
         )
 
         cluster_res = ray.cluster_resources()
@@ -181,7 +184,7 @@ def init_ray(log_dir: Optional[str] = None) -> None:
         include_dashboard=True,
         num_gpus=num_gpus,
         runtime_env=local_runtime_env,
-        _temp_dir=os.path.abspath(log_dir) if log_dir else None,
+        _temp_dir=temp_dir,
         resources={cvd_tag: 1},
     )
     logger.info(
