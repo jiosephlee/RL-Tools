@@ -35,35 +35,31 @@ def get_default_tools() -> dict[str, Callable[..., Any]]:
 
     try:
         from nemo_rl.environments.tool_calling.tools.rdkit_tools import (
-            calculate_logp,
-            calculate_molecular_weight,
-            calculate_num_hba,
-            calculate_num_hbd,
-            calculate_num_rotatable_bonds,
-            calculate_tpsa,
-            get_molecular_formula,
-            smiles_to_iupac,
+            get_mol_logp,
+            get_molecular_weight,
+            get_hba,
+            get_hbd,
+            get_num_rotatable_bonds,
+            get_tpsa,
         )
 
         tools.update({
-            "calculate_logp": calculate_logp,
-            "calculate_molecular_weight": calculate_molecular_weight,
-            "calculate_tpsa": calculate_tpsa,
-            "calculate_num_hba": calculate_num_hba,
-            "calculate_num_hbd": calculate_num_hbd,
-            "calculate_num_rotatable_bonds": calculate_num_rotatable_bonds,
-            "get_molecular_formula": get_molecular_formula,
-            "smiles_to_iupac": smiles_to_iupac,
+            "get_mol_logp": get_mol_logp,
+            "get_molecular_weight": get_molecular_weight,
+            "get_tpsa": get_tpsa,
+            "get_hba": get_hba,
+            "get_hbd": get_hbd,
+            "get_num_rotatable_bonds": get_num_rotatable_bonds,
         })
     except ImportError as e:
         logger.warning("RDKit tools unavailable: %s", e)
 
     try:
         from nemo_rl.environments.tool_calling.tools.standardize_tools import (
-            standardize_smiles,
+            remove_salts,
         )
 
-        tools["standardize_smiles"] = standardize_smiles
+        tools["remove_salts"] = remove_salts
     except ImportError as e:
         logger.warning("Standardize tools unavailable: %s", e)
 
