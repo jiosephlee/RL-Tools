@@ -24,6 +24,7 @@ NUM_PROMPTS="${NUM_PROMPTS:-8}"
 NUM_GENS="${NUM_GENS:-8}"
 TRAIN_GLOBAL_BS="${TRAIN_GLOBAL_BS:-64}"
 VAL_PERIOD="${VAL_PERIOD:-32}"
+VLLM_GPU_MEM_UTIL="${VLLM_GPU_MEM_UTIL:-0.6}"
 EXTRA_OVERRIDES="${EXTRA_OVERRIDES:-}"
 
 ### PROJECT ROOT ###
@@ -40,11 +41,16 @@ if [ ! -f "$TRAIN_DATA" ]; then
     exit 1
 fi
 
-### CLEANUP ###
+### CLEANUP — ensure no stale Ray processes or sockets ###
 ray stop --force 2>/dev/null || true
-pkill -f "ray::" 2>/dev/null || true
-pkill -f raylet 2>/dev/null || true
-sleep 2
+# Kill any orphaned Ray processes
+pkill -9 -f "ray::" 2>/dev/null || true
+pkill -9 -f raylet 2>/dev/null || true
+pkill -9 -f gcs_server 2>/dev/null || true
+pkill -9 -f plasma_store 2>/dev/null || true
+# Remove stale Ray temp dirs to avoid socket EOF errors
+rm -rf /tmp/ray/ /tmp/ray_${USER}* 2>/dev/null || true
+sleep 3
 
 ### ENV VARS ###
 export RAY_TMPDIR="/tmp/ray_${USER}_$$"
@@ -72,6 +78,7 @@ OVERRIDES=(
     "grpo.max_num_steps=$MAX_STEPS"
     "grpo.val_period=$VAL_PERIOD"
     "cluster.gpus_per_node=$NUM_GPUS"
+    "policy.generation.vllm_cfg.gpu_memory_utilization=$VLLM_GPU_MEM_UTIL"
     "data.train.data_path=$TRAIN_DATA"
     "data.validation.data_path=$VAL_DATA"
 )
