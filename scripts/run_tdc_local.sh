@@ -10,7 +10,7 @@ set -euo pipefail
 
 ### ARGS ###
 MODEL="${MODEL:-unsloth/gpt-oss-20b-BF16}"
-NUM_GPUS="${NUM_GPUS:-2}"
+NUM_GPUS="${NUM_GPUS:-1}"
 MAX_STEPS="${MAX_STEPS:-10}"
 MAX_TURNS="${MAX_TURNS:-30}"
 MULTI_TURN="${MULTI_TURN:-1}"
@@ -19,12 +19,11 @@ TIS="${TIS:-0}"
 TIS_TYPE="${TIS_TYPE:-tis}"
 TIS_THRESHOLDS="${TIS_THRESHOLDS:-0.5 5.0}"
 LEARNING_RATE="${LEARNING_RATE:-1e-6}"
-MAX_SEQ_LEN="${MAX_SEQ_LEN:-2048}"
+MAX_SEQ_LEN="${MAX_SEQ_LEN:-8192}"
 NUM_PROMPTS="${NUM_PROMPTS:-8}"
 NUM_GENS="${NUM_GENS:-8}"
 TRAIN_GLOBAL_BS="${TRAIN_GLOBAL_BS:-64}"
-VAL_PERIOD="${VAL_PERIOD:-32}"
-VLLM_GPU_MEM_UTIL="${VLLM_GPU_MEM_UTIL:-0.6}"
+VAL_PERIOD="${VAL_PERIOD:-16}"
 EXTRA_OVERRIDES="${EXTRA_OVERRIDES:-}"
 
 ### PROJECT ROOT ###
@@ -65,7 +64,7 @@ export TRITON_CACHE_DIR="${TRITON_CACHE_DIR:-/tmp/triton_cache_${USER}}"
 mkdir -p "$TRITON_CACHE_DIR"
 
 # Clear stale caches
-rm -rf ~/.cache/torch/inductor/ "/tmp/torchinductor_${USER}/" ~/.cache/vllm/torch_compile_cache/ 2>/dev/null || true
+# rm -rf ~/.cache/torch/inductor/ "/tmp/torchinductor_${USER}/" ~/.cache/vllm/torch_compile_cache/ 2>/dev/null || true
 
 ### BUILD OVERRIDES ###
 OVERRIDES=(
