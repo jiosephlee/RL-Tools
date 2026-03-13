@@ -7,11 +7,8 @@
 #   MULTI_TURN=0 bash scripts/run_tdc_local.sh             # single-turn TDC
 
 set -euo pipefail
-
-# Use a fresh temp dir
-export RAY_TMPDIR="/tmp/ray_fresh_${USER}_$(date +%s)"
-mkdir -p "$RAY_TMPDIR"
-
+unset TMPDIR
+unset RAY_TMPDIR    
 # Also try increasing the socket timeout
 export RAY_BACKEND_LOG_LEVEL=warning
 
@@ -48,19 +45,12 @@ if [ ! -f "$TRAIN_DATA" ]; then
     exit 1
 fi
 
-### CLEANUP — ensure no stale Ray processes or sockets ###
-ray stop --force 2>/dev/null || true
-# Kill any orphaned Ray processes
-pkill -9 -f "ray::" 2>/dev/null || true
-pkill -9 -f raylet 2>/dev/null || true
-pkill -9 -f gcs_server 2>/dev/null || true
-pkill -9 -f plasma_store 2>/dev/null || true
 # Remove stale Ray temp dirs to avoid socket EOF errors
 rm -rf /tmp/ray/ /tmp/ray_${USER}* 2>/dev/null || true
 sleep 3
 
 ### ENV VARS ###
-export RAY_TMPDIR="/tmp/ray_${USER}_$$"
+export RAY_TMPDIR="/tmp/ray_rl" 
 mkdir -p "$RAY_TMPDIR"
 export VLLM_NO_USAGE_STATS=1
 export VLLM_DISABLE_TELEMETRY=1
@@ -155,6 +145,8 @@ printf "  %s\n" "${OVERRIDES[@]}"
 echo "========================================"
 
 ### RUN ###
+echo "running"                                                                                                                                                             
+cd ~/RL-Tools                                                                                           
 python examples/run_grpo.py \
     --config examples/configs/grpo_tdc_tool_calling.yaml \
     "${OVERRIDES[@]}"
