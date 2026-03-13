@@ -165,11 +165,26 @@ def init_ray(log_dir: Optional[str] = None) -> None:
     local_runtime_env = dict(runtime_env)
     local_runtime_env.pop("working_dir", None)
 
+    # Detect GPU count via torch since Ray's auto-detection may misidentify
+    # accelerators on certain driver/CUDA versions (e.g. labeling GPUs as TPUs).
+    num_gpus = None
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            num_gpus = torch.cuda.device_count()
+    except ImportError:
+        pass
+
+    # Use a short temp dir to keep Unix socket paths under the 107-byte limit.
+    temp_dir = os.path.abspath(log_dir) if log_dir else "/tmp/ray"
+
     ray.init(
         log_to_driver=True,
         include_dashboard=True,
+        num_gpus=num_gpus,
         runtime_env=local_runtime_env,
-        _temp_dir=os.path.abspath(log_dir) if log_dir else None,
+        _temp_dir=temp_dir,
         resources={cvd_tag: 1},
     )
     logger.info(
