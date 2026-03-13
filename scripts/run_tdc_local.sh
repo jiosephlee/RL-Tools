@@ -45,7 +45,6 @@ if [ ! -f "$TRAIN_DATA" ]; then
     exit 1
 fi
 
-<<<<<<< HEAD
 ### RAY SETUP ###
 # Use conda env's ray to avoid version mismatch with system ray
 RAY_CMD="python -m ray.scripts.scripts"
@@ -90,23 +89,6 @@ export NCCL_ASYNC_ERROR_HANDLING=1
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export TRITON_CACHE_DIR="${TRITON_CACHE_DIR:-/tmp/triton_cache_${USER}}"
 mkdir -p "$TRITON_CACHE_DIR"
-=======
-# # Remove stale Ray temp dirs to avoid socket EOF errors
-# rm -rf /tmp/ray/ /tmp/ray_${USER}* 2>/dev/null || true
-# sleep 3
-
-# ### ENV VARS ###
-# export RAY_TMPDIR="/tmp/ray_rl" 
-# mkdir -p "$RAY_TMPDIR"
-# export VLLM_NO_USAGE_STATS=1
-# export VLLM_DISABLE_TELEMETRY=1
-# export VLLM_ALLOW_INSECURE_SERIALIZATION=1
-# export NCCL_NVLS_ENABLE=1
-# export NCCL_ASYNC_ERROR_HANDLING=1
-# export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
-# export TRITON_CACHE_DIR="${TRITON_CACHE_DIR:-/tmp/triton_cache_${USER}}"
-# mkdir -p "$TRITON_CACHE_DIR"
->>>>>>> 814852f (fixing ray)
 
 # Clear stale caches
 # rm -rf ~/.cache/torch/inductor/ "/tmp/torchinductor_${USER}/" ~/.cache/vllm/torch_compile_cache/ 2>/dev/null || true
