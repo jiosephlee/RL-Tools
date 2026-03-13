@@ -11,3 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+"""Tool implementations for TDC molecular property prediction.
+
+Ported from OpenRLHF-Tools/Intern-S1-recipe/tools/ to remove external dependency.
+All tools require RDKit; optional dependencies (molgpka, freesasa) are handled
+via try/except at import time.
+"""

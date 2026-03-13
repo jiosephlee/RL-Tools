@@ -49,3 +49,15 @@ __all__ = [
     "SequencePackingLossWrapper",
     "wrap_loss_fn_with_input_preparation",
 ]
+
+
+def __getattr__(name: str):
+    if name == "LigerGRPOLossFn":
+        from nemo_rl.algorithms.loss.liger_grpo_loss import LigerGRPOLossFn
+
+        return LigerGRPOLossFn
+    if name == "LigerGRPOLossConfig":
+        from nemo_rl.algorithms.loss.liger_grpo_loss import LigerGRPOLossConfig
+
+        return LigerGRPOLossConfig
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

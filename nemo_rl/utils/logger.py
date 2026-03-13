@@ -961,6 +961,9 @@ class Logger(LoggerInterface):
     ) -> None:
         """Log metrics to all enabled backends.
 
+        When wandb is enabled, metric keys are routed to panel sections
+        (parse/, vllm/, system/, train/) for organized dashboard display.
+
         Args:
             metrics: Dict of metrics to log
             step: Global step value
@@ -969,7 +972,18 @@ class Logger(LoggerInterface):
                          of the provided step value (currently only needed for wandb)
         """
         for logger in self.loggers:
-            logger.log_metrics(metrics, step, prefix, step_metric, step_finished)
+            if logger is self.wandb_logger and not prefix:
+                # Apply panel routing for wandb when no explicit prefix is set
+                routed = {route_metric_key(k): v for k, v in metrics.items()}
+                logger.log_metrics(
+                    routed,
+                    step,
+                    prefix="",
+                    step_metric=step_metric,
+                    step_finished=step_finished,
+                )
+            else:
+                logger.log_metrics(metrics, step, prefix, step_metric, step_finished)
 
     def log_hyperparams(self, params: Mapping[str, Any]) -> None:
         """Log hyperparameters to all enabled backends.
@@ -1224,10 +1238,61 @@ class Logger(LoggerInterface):
 
         plt.close(fig)
 
+    def log_json(self, data: Any, filepath: str) -> None:
+        """Write a JSON object to a file within the log directory.
+
+        Args:
+            data: JSON-serializable data to write.
+            filepath: Relative path within log_dir.
+        """
+        full_path = os.path.join(self.base_log_dir, filepath)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+
+    def append_jsonl(self, record: dict[str, Any], filepath: str) -> None:
+        """Append a single JSON record to a JSONL file within the log directory.
+
+        Args:
+            record: Dict to write as one JSONL line.
+            filepath: Relative path within log_dir.
+        """
+        full_path = os.path.join(self.base_log_dir, filepath)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "a") as f:
+            f.write(json.dumps(record, default=str) + "\n")
+
     def __del__(self) -> None:
         """Clean up resources when the logger is destroyed."""
         if self.gpu_monitor:
             self.gpu_monitor.stop()
+
+
+def route_metric_key(key: str) -> str:
+    """Route a metric key to a wandb panel section.
+
+    Matches OpenRLHF's panel routing: parse/, vllm/, system/, train/.
+
+    Args:
+        key: Raw metric key name.
+
+    Returns:
+        Panel-prefixed key (e.g. "parse/parse_method__json" or "train/loss").
+    """
+    if key.startswith("eval_"):
+        return f"eval/{key}"
+    if key.startswith("parse_method__") or key in {
+        "parse_failed",
+        "tool_call_attempted",
+    }:
+        return f"parse/{key}"
+    if key.startswith("tool_count__"):
+        return f"parse/{key}"
+    if key.startswith("vllm_") or key.startswith("vllm/"):
+        return f"vllm/{key}"
+    if key.startswith("cpu_") or key.startswith("system_") or key.startswith("mem_"):
+        return f"system/{key}"
+    return f"train/{key}"
 
 
 def flatten_dict(d: Mapping[str, Any], sep: str = ".") -> dict[str, Any]:

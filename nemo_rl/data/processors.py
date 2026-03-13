@@ -30,6 +30,7 @@ from nemo_rl.data.interfaces import (
     VLMMessageLogType,
 )
 from nemo_rl.data.llm_message_utils import get_formatted_message_log
+from nemo_rl.data.processors.tdc_processor import tdc_data_processor
 
 TokenizerType = PreTrainedTokenizerBase
 
@@ -767,6 +768,7 @@ PROCESSOR_REGISTRY: Dict[str, TaskDataProcessFnCallable] = cast(
         "sft_processor": sft_processor,
         "vlm_hf_data_processor": vlm_hf_data_processor,
         "nemo_gym_data_processor": nemo_gym_data_processor,
+        "tdc_data_processor": tdc_data_processor,
     },
 )
 

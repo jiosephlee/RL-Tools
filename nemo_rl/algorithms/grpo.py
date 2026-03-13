@@ -376,7 +376,13 @@ def setup(
     # ==========================
     #        Loss Function
     # ==========================
-    loss_fn = ClippedPGLossFn(loss_config)
+    if loss_config.get("use_liger_grpo_loss", False):
+        from nemo_rl.algorithms.loss.liger_grpo_loss import LigerGRPOLossFn
+
+        loss_fn = LigerGRPOLossFn(loss_config)
+        print("  ✓ Using Liger Triton GRPO loss")
+    else:
+        loss_fn = ClippedPGLossFn(loss_config)
 
     # Validate force_on_policy_ratio
     if loss_config.get("force_on_policy_ratio", False):
@@ -1311,6 +1317,307 @@ def compute_and_apply_seq_logprob_error_masking(
 
 
 # ===============================================================================
+# Tracing & Logging Helpers
+# ===============================================================================
+
+
+def _init_trace_dirs(log_dir: str) -> dict[str, str]:
+    """Create the local tracing directory structure matching OpenRLHF runs.
+
+    Returns:
+        Dict mapping directory names to their full paths.
+    """
+    dirs = {}
+    for subdir in (
+        "traces",
+        "tool_usage_eval",
+        "eval_metrics",
+        "vllm_stats",
+        "dataloader_logs",
+    ):
+        path = os.path.join(log_dir, subdir)
+        os.makedirs(path, exist_ok=True)
+        dirs[subdir] = path
+    return dirs
+
+
+def _write_step_trace(
+    logger: Logger,
+    step: int,
+    message_logs: list,
+    rewards: torch.Tensor,
+    consumed_samples: int,
+) -> None:
+    """Write step trace JSONL and first-ever trace JSON."""
+    if not message_logs:
+        return
+    # Extract first sample's decoded text
+    first_log = message_logs[0] if message_logs else []
+    decoded = ""
+    for msg in first_log if isinstance(first_log, list) else []:
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            decoded = str(msg.get("content", ""))
+
+    record = {
+        "step": step,
+        "episode": 0,
+        "prompts_consumed": consumed_samples,
+        "reward": rewards[0].item() if rewards.numel() > 0 else 0.0,
+        "decoded": decoded,
+    }
+    logger.append_jsonl(record, f"traces/step{step}.jsonl")
+
+    # First-ever trace on step 1
+    if step == 1:
+        trace_data = {
+            "step": step,
+            "message_log": first_log,
+            "reward": rewards[0].item() if rewards.numel() > 0 else 0.0,
+        }
+        logger.log_json(trace_data, "traces/first_ever_trace.json")
+
+
+def _write_eval_trace(
+    logger: Logger,
+    step: int,
+    message_logs: list,
+    rewards: list,
+) -> None:
+    """Write eval trace JSON."""
+    if not message_logs:
+        return
+    first_log = message_logs[0] if message_logs else []
+    trace_data = {
+        "step": step,
+        "message_log": first_log,
+        "reward": rewards[0] if rewards else 0.0,
+    }
+    logger.log_json(trace_data, f"traces/eval_{step}.json")
+
+
+def _log_interesting_groups(
+    logger: Logger,
+    step: int,
+    message_logs: list,
+    rewards: torch.Tensor,
+    num_generations_per_prompt: int,
+) -> None:
+    """Find 'needle' and 'mixed' reward groups and write group traces.
+
+    Needle: exactly 1 high-reward sample in the group.
+    Mixed: 40-60% high-reward fraction.
+    Ported from OpenRLHF ppo_trainer.py:590-674.
+    """
+    if rewards.numel() == 0 or num_generations_per_prompt <= 1:
+        return
+
+    num_prompts = rewards.shape[0] // num_generations_per_prompt
+    if num_prompts == 0:
+        return
+
+    grouped_rewards = rewards.view(num_prompts, num_generations_per_prompt)
+    high_mask = (grouped_rewards >= 0.5).float()
+    high_fractions = high_mask.mean(dim=1)
+
+    # Find needle groups (exactly 1 high reward)
+    needle_mask = high_mask.sum(dim=1) == 1
+    # Find mixed groups (40-60% high fraction)
+    mixed_mask = (high_fractions >= 0.4) & (high_fractions <= 0.6)
+
+    for group_type, mask in [("needle", needle_mask), ("mixed", mixed_mask)]:
+        indices = mask.nonzero(as_tuple=True)[0]
+        if len(indices) == 0:
+            continue
+        # Take first group
+        idx = indices[0].item()
+        start = idx * num_generations_per_prompt
+        end = start + num_generations_per_prompt
+        group_logs = message_logs[start:end] if start < len(message_logs) else []
+        group_rewards = grouped_rewards[idx].tolist()
+
+        trace_data = {
+            "step": step,
+            "type": group_type,
+            "prompt_idx": idx,
+            "rewards": group_rewards,
+            "high_fraction": high_fractions[idx].item(),
+            "message_logs": group_logs,
+        }
+        logger.log_json(trace_data, f"traces/group_trace_step{step}_{group_type}.json")
+
+
+def _write_run_timing(
+    logger: Logger, step: int, timing_metrics: dict[str, float]
+) -> None:
+    """Write per-step timing to vllm_stats/run_timing.jsonl."""
+    import time as _time
+
+    record = {
+        "global_step": step,
+        "timestamp": _time.time(),
+        **timing_metrics,
+    }
+    logger.append_jsonl(record, "vllm_stats/run_timing.jsonl")
+
+
+def _macro_f1(y_true: list[str], y_pred: list[str]) -> float:
+    """Compute macro-averaged F1 score for binary/multi-class classification."""
+    classes = sorted(set(y_true) | set(y_pred))
+    f1_sum = 0.0
+    for cls in classes:
+        tp = sum(1 for t, p in zip(y_true, y_pred) if t == cls and p == cls)
+        fp = sum(1 for t, p in zip(y_true, y_pred) if t != cls and p == cls)
+        fn = sum(1 for t, p in zip(y_true, y_pred) if t == cls and p != cls)
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        f1_sum += f1
+    return f1_sum / len(classes) if classes else 0.0
+
+
+def _compute_per_task_eval_metrics(
+    total_rewards: list[float],
+    extra_env_infos: list[dict[str, Any]],
+    message_logs: list[Any],
+) -> dict[str, float]:
+    """Compute per-task accuracy and macro-F1 for eval, matching OpenRLHF's eval/ panel pattern.
+
+    Returns keys like eval_{task}_accuracy, eval_{task}_macro_f1, eval_avg_accuracy, eval_avg_macro_f1.
+    """
+    if not extra_env_infos or len(extra_env_infos) != len(total_rewards):
+        return {}
+
+    from nemo_rl.environments.tdc_environment import extract_final_answer
+
+    # Group rewards and predictions by task
+    task_rewards: dict[str, list[float]] = {}
+    task_labels: dict[str, list[str]] = {}
+    task_preds: dict[str, list[str]] = {}
+
+    for i, env_info in enumerate(extra_env_infos):
+        if not isinstance(env_info, dict):
+            continue
+        task = env_info.get("task", "")
+        if not task:
+            continue
+
+        if task not in task_rewards:
+            task_rewards[task] = []
+            task_labels[task] = []
+            task_preds[task] = []
+
+        task_rewards[task].append(total_rewards[i])
+
+        # Extract prediction from assistant text for macro-F1
+        label = env_info.get("ground_truth", env_info.get("label", ""))
+        if label and i < len(message_logs):
+            assistant_text = ""
+            msg_log = message_logs[i]
+            if isinstance(msg_log, list):
+                for msg in reversed(msg_log):
+                    if isinstance(msg, dict) and msg.get("role") == "assistant":
+                        assistant_text = str(msg.get("content", ""))
+                        break
+
+            pred = extract_final_answer(assistant_text)
+            task_labels[task].append(label.upper())
+            task_preds[task].append(pred.upper() if pred else "")
+
+    if not task_rewards:
+        return {}
+
+    metrics: dict[str, float] = {}
+
+    # Per-task accuracy
+    accuracy_values = []
+    for task, rewards in sorted(task_rewards.items()):
+        task_acc = sum(rewards) / len(rewards) if rewards else 0.0
+        metrics[f"eval_{task}_accuracy"] = task_acc
+        metrics[f"eval_{task}_count"] = len(rewards)
+        accuracy_values.append(task_acc)
+
+    # Per-task macro-F1
+    macro_f1_values = []
+    for task in sorted(task_labels.keys()):
+        labels = task_labels[task]
+        preds = task_preds[task]
+        if labels and preds:
+            f1 = _macro_f1(labels, preds)
+            metrics[f"eval_{task}_macro_f1"] = f1
+            macro_f1_values.append(f1)
+
+    # Averages across tasks
+    if accuracy_values:
+        metrics["eval_avg_accuracy"] = sum(accuracy_values) / len(accuracy_values)
+    if macro_f1_values:
+        metrics["eval_avg_macro_f1"] = sum(macro_f1_values) / len(macro_f1_values)
+
+    return metrics
+
+
+def _write_eval_metrics(logger: Logger, step: int, val_metrics: dict[str, Any]) -> None:
+    """Write eval results to eval_metrics/eval_step_{N}.json with per-task breakdown."""
+    # Separate per-task metrics into a nested structure
+    per_task: dict[str, dict[str, float]] = {}
+    global_metrics: dict[str, Any] = {"step": step}
+
+    for k, v in val_metrics.items():
+        if k.startswith("eval_") and k != "eval_avg_accuracy" and k != "eval_avg_macro_f1":
+            # Parse eval_{task}_{metric} -> per_task[task][metric]
+            parts = k.split("_", 1)  # ["eval", "{task}_{metric}"]
+            if len(parts) == 2:
+                rest = parts[1]
+                for suffix in ("_accuracy", "_macro_f1", "_count"):
+                    if rest.endswith(suffix):
+                        task = rest[: -len(suffix)]
+                        metric = suffix.lstrip("_")
+                        if task not in per_task:
+                            per_task[task] = {}
+                        per_task[task][metric] = v
+                        break
+                else:
+                    global_metrics[k] = v
+        else:
+            global_metrics[k] = v
+
+    if per_task:
+        global_metrics["per_task"] = per_task
+
+    logger.log_json(global_metrics, f"eval_metrics/eval_step_{step}.json")
+
+
+def _write_dataloader_log(logger: Logger, batch: Any, step: int) -> None:
+    """Write first N prompts with datasource tags to dataloader_logs/dataset_order.jsonl."""
+    message_logs = (
+        batch.get("message_log", [])
+        if hasattr(batch, "get")
+        else getattr(batch, "message_log", [])
+    )
+    if not message_logs:
+        return
+    # Log first 5 prompts
+    for i, msg_log in enumerate(message_logs[:5]):
+        prompt_text = ""
+        task_name = ""
+        if isinstance(msg_log, list):
+            for msg in msg_log:
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    prompt_text = str(msg.get("content", ""))[:200]
+                    break
+        if hasattr(batch, "__getitem__"):
+            task_names = batch.get("task_name", [])
+            if isinstance(task_names, list) and i < len(task_names):
+                task_name = task_names[i]
+        record = {
+            "step": step,
+            "idx": i,
+            "task": task_name,
+            "prompt_preview": prompt_text,
+        }
+        logger.append_jsonl(record, "dataloader_logs/dataset_order.jsonl")
+
+
+# ===============================================================================
 # Training & Validation
 # ===============================================================================
 
@@ -1337,6 +1644,9 @@ def grpo_train(
     )
     timeout.start_iterations()
     memory_tracker = MemoryTracker()
+
+    # Initialize local tracing directory structure
+    _init_trace_dirs(master_config["logger"]["log_dir"])
 
     kv_scales_cache = None  # Cache reused for computed kv scales
 
@@ -1590,6 +1900,17 @@ def grpo_train(
                     )
                     logger.log_metrics(rollout_metrics, total_steps + 1, prefix="train")
 
+                    # Write step trace and dataloader log
+                    _write_step_trace(
+                        logger,
+                        total_steps + 1,
+                        repeated_batch.get("message_log", []),
+                        repeated_batch.get("total_reward", torch.tensor([])),
+                        consumed_samples,
+                    )
+                    if total_steps == 0:
+                        _write_dataloader_log(logger, batch, total_steps + 1)
+
                 repeated_batch = scale_rewards(
                     repeated_batch, master_config["grpo"]["reward_scaling"]
                 )
@@ -1812,6 +2133,17 @@ def grpo_train(
                         advantages=train_data["advantages"],
                     )
                     del baseline_for_log
+
+                    # Log interesting reward groups (needle/mixed) every 4 steps
+                    if (total_steps + 1) % 4 == 0:
+                        msg_logs = repeated_batch.get("message_log", [])
+                        _log_interesting_groups(
+                            logger,
+                            total_steps + 1,
+                            msg_logs,
+                            rewards,
+                            master_config["grpo"]["num_generations_per_prompt"],
+                        )
 
                 memory_tracker.snapshot_start_of_stage("Policy train", dir())
                 print("▶ Preparing for training...", flush=True)
@@ -2183,6 +2515,9 @@ def grpo_train(
                 step_finished=True,
             )
 
+            # Write per-step run timing to vllm_stats/
+            _write_run_timing(logger, total_steps + 1, timing_metrics)
+
             # Reset the batch and set dynamic_sampling_num_gen_batches to 0
             batch_cache = None
             dynamic_sampling_num_gen_batches = 0
@@ -2242,6 +2577,7 @@ def validate(
         total_rewards = []
         total_lengths = []
         all_message_logs = []  # Collect all message logs
+        all_extra_env_infos = []  # Per-sample env info for per-task metrics
 
         max_batches = (
             master_config["grpo"]["max_val_samples"]
@@ -2294,6 +2630,10 @@ def validate(
             total_rewards.extend(val_batch["total_reward"].tolist())
             total_lengths.append(gen_metrics["mean_gen_tokens_per_sample"])
 
+            # Collect per-sample env info for per-task metrics
+            if "extra_env_info" in val_batch and val_batch["extra_env_info"] is not None:
+                all_extra_env_infos.extend(val_batch["extra_env_info"])
+
             # Collect message logs for later display
             to_env = [
                 get_keys_from_message_log(
@@ -2304,7 +2644,7 @@ def validate(
 
             all_message_logs.extend(to_env)
 
-        # Calculate validation metrics
+        # Calculate validation metrics — global + per-task
         num_samples = len(total_rewards)
         if num_samples > 0:
             rewards_t = torch.tensor(total_rewards, dtype=torch.float32)
@@ -2316,11 +2656,17 @@ def validate(
             sum(total_lengths) / len(total_lengths) if len(total_lengths) > 0 else 0.0
         )
 
-        val_metrics = {
+        val_metrics: dict[str, Any] = {
             "accuracy": accuracy,
             "avg_length": avg_length,
             **additional_metrics_to_report,
         }
+
+        # Per-task accuracy + macro-F1 (for TDC multi-dataset eval)
+        per_task_metrics = _compute_per_task_eval_metrics(
+            total_rewards, all_extra_env_infos, all_message_logs
+        )
+        val_metrics.update(per_task_metrics)
 
         # Print sample conversations only once at the end of validation
         try:
@@ -2345,7 +2691,12 @@ def validate(
     print("\n📊 Validation Results:")
     print(f"    • Accuracy: {accuracy:.4f}")
     print(f"    • Average response length: {avg_length:.1f} tokens")
-    print(f"    • Samples processed: {len(total_rewards)}", flush=True)
+    print(f"    • Samples processed: {len(total_rewards)}")
+    # Print per-task breakdown if available
+    for k, v in sorted(val_metrics.items()):
+        if k.startswith("eval_") and k.endswith(("_accuracy", "_macro_f1")):
+            print(f"    • {k}: {v:.4f}")
+    print("", flush=True)
 
     # Print timing information
     print("\n  ⏱️  Validation Timing:")
@@ -2359,6 +2710,19 @@ def validate(
             "rewards": total_rewards,
         }
         logger.log_batched_dict_as_jsonl(val_log_data, f"val_data_step{step}.jsonl")
+
+        # Write eval trace and eval metrics to local tracing dirs
+        _write_eval_trace(logger, step, all_message_logs, total_rewards)
+        _write_eval_metrics(logger, step, val_metrics)
+
+        # Log per-task eval metrics with no prefix so route_metric_key sends them to eval/
+        eval_keys = {k: v for k, v in val_metrics.items() if k.startswith("eval_")}
+        if eval_keys:
+            logger.log_metrics(eval_keys, step)
+
+    # Strip eval_ keys from val_metrics so callers logging with prefix="validation"
+    # don't duplicate them — they've already been logged under eval/ above.
+    val_metrics = {k: v for k, v in val_metrics.items() if not k.startswith("eval_")}
 
     # Make sure to reset the timer after validation
     timer.reset()
