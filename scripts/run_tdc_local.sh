@@ -46,13 +46,17 @@ if [ ! -f "$TRAIN_DATA" ]; then
 fi
 
 ### RAY SETUP ###
+# Use conda env's ray to avoid version mismatch with system ray
+RAY_CMD="python -m ray.scripts.scripts"
+echo "Using ray from: $(which python)"
+
 NUM_GPUS_DETECTED="${SLURM_GPUS_ON_NODE:-$(nvidia-smi -L 2>/dev/null | wc -l)}"
 export RAY_TMPDIR="/tmp/ray_rl"
 mkdir -p "$RAY_TMPDIR"
 
 # Clear stale state
 unset RAY_ADDRESS
-ray stop --force 2>/dev/null || true
+$RAY_CMD stop --force 2>/dev/null || true
 rm -rf "$RAY_TMPDIR"/session_* 2>/dev/null || true
 sleep 2
 
@@ -60,7 +64,7 @@ sleep 2
 RAY_PORT=$(( 6379 + (RANDOM % 1000) ))
 RAY_NODE_IP=$(hostname -I | awk '{print $1}')
 echo "Starting Ray head at $RAY_NODE_IP:$RAY_PORT with $NUM_GPUS_DETECTED GPUs"
-ray start --head \
+$RAY_CMD start --head \
     --node-ip-address "$RAY_NODE_IP" \
     --port "$RAY_PORT" \
     --num-gpus "$NUM_GPUS_DETECTED" \
@@ -70,10 +74,10 @@ export RAY_ADDRESS="$RAY_NODE_IP:$RAY_PORT"
 
 # Wait for Ray
 for i in {1..30}; do
-    ray status >/dev/null 2>&1 && break
+    $RAY_CMD status >/dev/null 2>&1 && break
     sleep 1
 done
-ray status || { echo "Error: Ray failed to start" >&2; exit 1; }
+$RAY_CMD status || { echo "Error: Ray failed to start" >&2; exit 1; }
 
 ### ENV VARS ###
 export VLLM_NO_USAGE_STATS=1
@@ -177,4 +181,4 @@ python examples/run_grpo.py \
 
 ### CLEANUP ###
 echo "Training complete. Stopping Ray..."
-ray stop --force 2>/dev/null || true
+$RAY_CMD stop --force 2>/dev/null || true
