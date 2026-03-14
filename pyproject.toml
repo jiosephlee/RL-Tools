@@ -43,7 +43,7 @@ dependencies = [
   "plotly",
   "sympy>=1.14.0",
   "pillow>=11.3.0",
-  "torchvision>=0.22.0",
+  "torchvision==0.24.0",
   "num2words>=0.5.14",                                                                                                # for SmolVLM
   "mlflow>=3.5.0,<3.6.0",
   "nvidia-nvshmem-cu12; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # for deep_ep build
