@@ -37,6 +37,10 @@ cd "$PROJECT_ROOT"
 BALANCED_SAMPLING="${BALANCED_SAMPLING:-0}"
 
 ### ENV VARS ###
+# Unset VIRTUAL_ENV from conda activation so uv worker venv creation
+# doesn't conflict (the warning "does not match the project environment path")
+unset VIRTUAL_ENV
+
 # Put venvs and cache on project disk to avoid home quota issues
 export UV_PROJECT_ENVIRONMENT=/vast/projects/myatskar/design-documents/nemo-rl-venv
 export UV_CACHE_DIR=/vast/projects/myatskar/design-documents/.uv-cache
@@ -55,7 +59,7 @@ uv run python -m ray.scripts.scripts stop --force 2>/dev/null || true
 rm -rf "$RAY_TMPDIR"/session_* 2>/dev/null || true
 sleep 2
 
-# Start Ray head with explicit GPU count
+# Start Ray head externally to avoid EOF socket bug in init_ray()
 RAY_PORT=$(( 6379 + (RANDOM % 1000) ))
 RAY_NODE_IP=$(hostname -I | awk '{print $1}')
 echo "Starting Ray head at $RAY_NODE_IP:$RAY_PORT with $NUM_GPUS_DETECTED GPUs"
