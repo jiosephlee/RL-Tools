@@ -12,6 +12,9 @@
 # # Also try increasing the socket timeout
 # export RAY_BACKEND_LOG_LEVEL=warning
 export NEMO_RL_PY_EXECUTABLES_SYSTEM=1
+export NEMO_RL_VENV_DIR=/vast/projects/myatskar/design-documents/nemo-rl-venvs 
+export UV_CACHE_DIR=/vast/projects/myatskar/design-documents/.uv-cache
+export TORCH_CUDA_ARCH_LIST="10.0"
 ### ARGS ###
 MODEL="${MODEL:-unsloth/gpt-oss-20b-BF16}"
 NUM_GPUS="${NUM_GPUS:-1}"
@@ -176,7 +179,7 @@ echo "========================================"
 ### RUN ###
 echo "running"
 cd ~/RL-Tools
-python examples/run_grpo.py \
+uv run python examples/run_grpo.py \
     --config examples/configs/grpo_tdc_tool_calling.yaml \
     "${OVERRIDES[@]}"
 
