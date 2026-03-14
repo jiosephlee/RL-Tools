@@ -11,7 +11,7 @@
 # unset RAY_TMPDIR    
 # # Also try increasing the socket timeout
 # export RAY_BACKEND_LOG_LEVEL=warning
-
+export NEMO_RL_PY_EXECUTABLES_SYSTEM=1
 ### ARGS ###
 MODEL="${MODEL:-unsloth/gpt-oss-20b-BF16}"
 NUM_GPUS="${NUM_GPUS:-1}"
