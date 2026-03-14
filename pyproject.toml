@@ -23,7 +23,7 @@ dependencies = [
   "triton; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
   "colored==2.2.3",
   "ray[default]==2.49.2",
-  "transformers==5.3.0",
+  "transformers==4.57.6",
   "wandb>=0.25.0",
   "numpy",
   "datasets>=4.0.0",
@@ -77,7 +77,7 @@ vllm = [
   # sudo apt-get update
   # sudo apt-get install libibverbs-dev
   "deep_ep @ git+https://github.com/deepseek-ai/DeepEP.git@bfded34800dfec415b71503f8205181de90b2480",
-  "vllm==0.17.1",
+  "vllm==0.11.2",
   "num2words>=0.5.14",
 ]
 sglang = [

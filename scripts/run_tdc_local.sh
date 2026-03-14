@@ -80,6 +80,7 @@ done
 $RAY_CMD status || { echo "Error: Ray failed to start" >&2; exit 1; }
 
 ### ENV VARS ###
+export NEMO_RL_PY_EXECUTABLES_SYSTEM=1  # Use conda env python directly, skip uv venv creation
 export VLLM_NO_USAGE_STATS=1
 export VLLM_DISABLE_TELEMETRY=1
 export VLLM_ALLOW_INSECURE_SERIALIZATION=1
