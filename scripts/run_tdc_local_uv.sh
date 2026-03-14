@@ -32,13 +32,9 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 ### DATA ###
-TRAIN_DATA="${TRAIN_DATA:-data/tdc/tdc_16task_train.jsonl}"
-VAL_DATA="${VAL_DATA:-data/tdc/tdc_16task_val.jsonl}"
-
-if [ ! -f "$TRAIN_DATA" ]; then
-    echo "Error: Training data not found at $TRAIN_DATA" >&2
-    exit 1
-fi
+# Per-task JSONL files are listed in the YAML config.
+# Generate from merged JSONL: python scripts/split_tdc_by_task.py
+BALANCED_SAMPLING="${BALANCED_SAMPLING:-0}"
 
 ### ENV VARS ###
 # Put venvs and cache on project disk to avoid home quota issues
@@ -68,9 +64,16 @@ OVERRIDES=(
     "grpo.val_period=$VAL_PERIOD"
     "cluster.gpus_per_node=$NUM_GPUS"
     "policy.generation.vllm_cfg.gpu_memory_utilization=$VLLM_GPU_MEM_UTIL"
-    "data.train.data_path=$TRAIN_DATA"
-    "data.validation.data_path=$VAL_DATA"
 )
+
+# Balanced per-task sampling (each task contributes equally per batch)
+if [ "$BALANCED_SAMPLING" = "1" ]; then
+    OVERRIDES+=(
+        "data.use_multiple_dataloader=true"
+        "grpo.num_prompts_per_step=16"
+    )
+    echo "Balanced per-task sampling enabled"
+fi
 
 # Tensor parallelism for multi-GPU
 if [ "$NUM_GPUS" -gt 1 ]; then
@@ -127,8 +130,7 @@ echo "NeMo RL — TDC GRPO Training (local, uv-managed)"
 echo "========================================"
 echo "Model: $MODEL"
 echo "GPUs: $NUM_GPUS"
-echo "Train data: $TRAIN_DATA"
-echo "Val data: ${VAL_DATA}"
+echo "Balanced sampling: $BALANCED_SAMPLING"
 echo "Max steps: $MAX_STEPS"
 echo "Multi-turn: $MULTI_TURN  Liger: $LIGER_GRPO_LOSS  TIS: $TIS"
 echo "----------------------------------------"
