@@ -293,29 +293,155 @@ policy:
         num_nodes: null
 
 # --- Data ---
-# Point train/validation at local JSONL files.
-# Override on CLI: data.train.data_path=/your/path/train.jsonl
+# Per-task JSONL files under data/tdc/per_task/{train,val}/.
+# Generate from merged JSONL: python scripts/split_tdc_by_task.py
 #
-# For multi-dataset eval (per-task accuracy + macro-F1 in eval/ wandb panel),
-# use a list of validation configs — one per dataset.
-# The SLURM script auto-generates this from TASK_NAMES.
-# Example CLI override for multiple val sets:
-#   data.validation='[{data_path: task1_val.jsonl, ...}, {data_path: task2_val.jsonl, ...}]'
+# With use_multiple_dataloader=false (default), all tasks are concatenated
+# into one dataset with random sampling — same as a single merged JSONL.
+# Set use_multiple_dataloader=true to enable balanced per-task sampling
+# (each task contributes equally per batch via custom_dataloader).
 data:
+  _override_: true
   max_input_seq_length: ${policy.max_total_sequence_length}
   shuffle: true
   num_workers: 2
-  use_multiple_dataloader: false
+
+  use_multiple_dataloader: false  # true = balanced per-task sampling
+  num_prompts_per_dataloader: 1
+  custom_dataloader: examples.custom_dataloader.custom_dataloader.example_custom_dataloader
+
   train:
-    dataset_name: ResponseDataset
-    data_path: null  # REQUIRED: set via CLI or env
-    input_key: messages
-    output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/AMES.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/BBB_Martins.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/Bioavailability_Ma.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/CYP2C9_Substrate_CarbonMangels.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/CYP2D6_Substrate_CarbonMangels.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/CYP3A4_Substrate_CarbonMangels.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/Carcinogens_Lagunin.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/ClinTox.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/DILI.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/HIA_Hou.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/PAMPA_NCATS.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/Pgp_Broccatelli.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/SARSCoV2_3CLPro_Diamond.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/SARSCoV2_Vitro_Touret.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/Skin_Reaction.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/train/hERG.jsonl
+      input_key: messages
+      output_key: answer
+
   validation:
-    dataset_name: ResponseDataset
-    data_path: null  # REQUIRED: set via CLI or env
-    input_key: messages
-    output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/AMES.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/BBB_Martins.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/Bioavailability_Ma.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/CYP2C9_Substrate_CarbonMangels.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/CYP2D6_Substrate_CarbonMangels.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/CYP3A4_Substrate_CarbonMangels.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/Carcinogens_Lagunin.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/ClinTox.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/DILI.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/HIA_Hou.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/PAMPA_NCATS.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/Pgp_Broccatelli.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/SARSCoV2_3CLPro_Diamond.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/SARSCoV2_Vitro_Touret.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/Skin_Reaction.jsonl
+      input_key: messages
+      output_key: answer
+    - dataset_name: ResponseDataset
+      data_path: data/tdc/per_task/val/hERG.jsonl
+      input_key: messages
+      output_key: answer
+
   default:
     prompt_file: null
     system_prompt_file: null
@@ -323,11 +449,9 @@ data:
     env_name: "tdc"
 
 # --- Environment ---
-# For single-turn TDC, use env_name=tdc.
+# For single-turn TDC, use env_name=tdc (default above).
 # For multi-turn tool calling, override:
 #   data.default.env_name=tool_calling
-#   env.tool_calling.max_turns=10
-#   env.tool_calling.chat_protocol=gpt_oss
 env:
   tdc:
     num_workers: 4
@@ -335,6 +459,8 @@ env:
     num_workers: 4
     max_turns: 10
     chat_protocol: "gpt_oss"
+    tools_file: null  # null = TDC tools loaded from code (get_default_tools: rdkit, standardize, etc.)
+    reward_fn: null   # null = use default reward function
 
 # --- Logger ---
 logger:
