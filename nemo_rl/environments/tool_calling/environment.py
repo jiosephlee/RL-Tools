@@ -88,7 +88,7 @@ class ToolCallingEnvironment(EnvironmentInterface[ToolCallingMetadata]):
             self.protocol = get_protocol(cfg.get("chat_protocol", "gpt_oss"))
             self.registry = ToolRegistry()
             self.registry.register_callables(get_default_tools())
-            if "tools_file" in cfg:
+            if cfg.get("tools_file"):
                 self.registry.load_schemas_from_file(cfg["tools_file"])
             self.max_turns = cfg.get("max_turns", 10)
             self.reward_fn = None
