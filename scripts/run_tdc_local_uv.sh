@@ -7,9 +7,16 @@
 #   NUM_GPUS=4 MAX_STEPS=100 bash scripts/run_tdc_local_uv.sh # override
 #   MULTI_TURN=0 bash scripts/run_tdc_local_uv.sh             # single-turn TDC
 
+
+set -euo pipefail
+unset TMPDIR
+unset RAY_TMPDIR    
+# Also try increasing the socket timeout
+export RAY_BACKEND_LOG_LEVEL=warning
+
 ### ARGS ###
 MODEL="${MODEL:-unsloth/gpt-oss-20b-BF16}"
-NUM_GPUS="${NUM_GPUS:-2}"
+NUM_GPUS="${NUM_GPUS:-1}"
 MAX_STEPS="${MAX_STEPS:-10}"
 MAX_TURNS="${MAX_TURNS:-30}"
 MULTI_TURN="${MULTI_TURN:-1}"
