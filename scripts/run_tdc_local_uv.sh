@@ -46,6 +46,7 @@ export UV_PROJECT_ENVIRONMENT=/vast/projects/myatskar/design-documents/nemo-rl-v
 export UV_CACHE_DIR=/vast/projects/myatskar/design-documents/.uv-cache
 export NEMO_RL_VENV_DIR=/vast/projects/myatskar/design-documents/nemo-rl-venvs
 export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-10.0}"
+export NEMO_RL_PY_EXECUTABLES_SYSTEM=1  # Skip worker venv creation; use current Python directly (same as NeMo RL Dockerfiles)
 
 ### RAY SETUP ###
 export RAY_TMPDIR="/tmp/ray_rl"

@@ -120,7 +120,7 @@ policy:
 
   dtensor_cfg:
     _v2: true
-    enabled: true
+    enabled: false
     cpu_offload: false
     sequence_parallel: false
     activation_checkpointing: false
@@ -140,7 +140,7 @@ policy:
       use_triton: true
 
   megatron_cfg:
-    enabled: false
+    enabled: true
     empty_unused_memory_level: 1
     activation_checkpointing: false
     converter_type: "GPTOSSForCausalLM"
