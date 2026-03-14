@@ -180,7 +180,7 @@ echo "========================================"
 
 ### RUN ###
 echo "running"
-uv run python examples/run_grpo.py \
+python examples/run_grpo.py \
     --config examples/configs/grpo_tdc_tool_calling.yaml \
     "${OVERRIDES[@]}"
 

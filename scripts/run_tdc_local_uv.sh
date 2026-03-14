@@ -13,7 +13,7 @@ unset TMPDIR
 unset RAY_TMPDIR    
 # Also try increasing the socket timeout
 export RAY_BACKEND_LOG_LEVEL=warning
-
+export NEMO_RL_PY_EXECUTABLES_SYSTEM=1 
 ### ARGS ###
 MODEL="${MODEL:-unsloth/gpt-oss-20b-BF16}"
 NUM_GPUS="${NUM_GPUS:-1}"
@@ -182,10 +182,10 @@ echo "========================================"
 
 ### RUN ###
 echo "running"
-uv run python examples/run_grpo.py \
+NRL_FORCE_REBUILD_VENVS=true python examples/run_grpo.py \
     --config examples/configs/grpo_tdc_tool_calling.yaml \
     "${OVERRIDES[@]}"
 
 ### CLEANUP ###
 echo "Training complete. Stopping Ray..."
-uv run python -m ray.scripts.scripts stop --force 2>/dev/null || true
+python -m ray.scripts.scripts stop --force 2>/dev/null || true
