@@ -52,6 +52,12 @@ class AbstractPolicyWorker:
         """Reset peak memory statistics."""
         torch.cuda.reset_peak_memory_stats()
 
+    def snapshot_and_reset_peak_gpu_memory_mb(self) -> float:
+        """Return peak GPU memory (MB) since last reset, then reset the counter."""
+        peak_mb = torch.cuda.max_memory_allocated() / (1024**2)
+        torch.cuda.reset_peak_memory_stats()
+        return peak_mb
+
     def get_gpu_info(self) -> dict[str, Any]:
         """Return information about the GPU being used by this worker."""
         from nemo_rl.models.policy.utils import get_gpu_info

@@ -79,6 +79,7 @@ class ToolCallingEnvironment(EnvironmentInterface[ToolCallingMetadata]):
         registry: Optional[ToolRegistry] = None,
         max_turns: int = 10,
         reward_fn: Optional[Callable[[str, str], float]] = None,
+        tokenizer: Optional[Any] = None,
     ):
         if cfg is not None:
             # Config-based init (called by create_env)
@@ -92,6 +93,13 @@ class ToolCallingEnvironment(EnvironmentInterface[ToolCallingMetadata]):
                 self.registry.load_schemas_from_file(cfg["tools_file"])
             self.max_turns = cfg.get("max_turns", 10)
             self.reward_fn = None
+            if cfg.get("reward_fn"):
+                import importlib
+
+                module_path, fn_name = cfg["reward_fn"].rsplit(".", 1)
+                mod = importlib.import_module(module_path)
+                self.reward_fn = getattr(mod, fn_name)
+            self.tokenizer = tokenizer
         else:
             # Direct init (for tests or programmatic use)
             assert protocol is not None and registry is not None
@@ -99,6 +107,7 @@ class ToolCallingEnvironment(EnvironmentInterface[ToolCallingMetadata]):
             self.registry = registry
             self.max_turns = max_turns
             self.reward_fn = reward_fn
+            self.tokenizer = tokenizer
 
     def step(
         self,
@@ -115,6 +124,7 @@ class ToolCallingEnvironment(EnvironmentInterface[ToolCallingMetadata]):
             EnvironmentReturn with tool feedback observations or terminal rewards.
         """
         observations: list[dict[str, str]] = []
+        observation_token_ids_list: list[list[int] | None] = []
         rewards_list: list[float] = []
         terminated_list: list[bool] = []
         updated_metadata: list[ToolCallingMetadata] = []
@@ -166,7 +176,11 @@ class ToolCallingEnvironment(EnvironmentInterface[ToolCallingMetadata]):
                     new_meta["format_reward"] += 0.0
 
                 feedback = self.protocol.render_tool_feedback(tool_results)
+                feedback_token_ids = self.protocol.render_tool_feedback_token_ids(
+                    tool_results, tokenizer=self.tokenizer
+                )
                 observations.append({"role": "environment", "content": feedback})
+                observation_token_ids_list.append(feedback_token_ids)
                 rewards_list.append(new_meta["format_reward"])
                 terminated_list.append(False)
                 next_stop_strings.append(self.protocol.stop_strings or None)
@@ -180,6 +194,7 @@ class ToolCallingEnvironment(EnvironmentInterface[ToolCallingMetadata]):
                     new_meta["format_reward"] += -0.0025
 
                 observations.append({"role": "environment", "content": ""})
+                observation_token_ids_list.append(None)
                 rewards_list.append(reward + new_meta["format_reward"])
                 terminated_list.append(True)
                 next_stop_strings.append(None)
@@ -193,6 +208,7 @@ class ToolCallingEnvironment(EnvironmentInterface[ToolCallingMetadata]):
             rewards=torch.tensor(rewards_list).cpu(),
             terminateds=torch.tensor(terminated_list, dtype=torch.float).cpu(),
             answers=None,
+            observation_token_ids=observation_token_ids_list,
         )
 
     def _compute_terminal_reward(

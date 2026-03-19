@@ -27,20 +27,20 @@
 grpo:
   num_prompts_per_step: 8
   num_generations_per_prompt: 8
-  max_rollout_turns: 1  # Set >1 for multi-turn tool calling
+  max_rollout_turns: 20  # Set >1 for multi-turn tool calling
   max_num_epochs: 1
   max_num_steps: 500
   normalize_rewards: true
-  use_leave_one_out_baseline: true
+  use_leave_one_out_baseline: false
   val_period: 32
   val_at_start: true
   val_at_end: true
   overlong_filtering: false
-  max_val_samples: -1
+  max_val_samples: 100000
   val_batch_size: 64
   seed: 42
   use_dynamic_sampling: true
-  dynamic_sampling_max_gen_batches: 100
+  dynamic_sampling_max_gen_batches: 250
   batch_multiplier: 1
   reward_shaping:
     enabled: false
@@ -67,27 +67,27 @@ grpo:
     recompute_kv_cache_after_weight_updates: false
 
 loss_fn:
-  reference_policy_kl_penalty: 0.01
-  reference_policy_kl_type: "k3"
+  reference_policy_kl_penalty: 0.0
+  reference_policy_kl_type: "k1"
   kl_input_clamp_value: 20.0
   kl_output_clamp_value: 10.0
   ratio_clip_min: 0.2
-  ratio_clip_max: 0.2
+  ratio_clip_max: 0.27
   ratio_clip_c: null
   use_on_policy_kl_approximation: false
-  use_importance_sampling_correction: false
+  use_importance_sampling_correction: true
   truncated_importance_sampling_ratio: null
   truncated_importance_sampling_ratio_min: null
   truncated_importance_sampling_type: tis
   sequence_level_importance_ratios: false
-  token_level_loss: true
+  token_level_loss: false
   force_on_policy_ratio: false
   use_kl_in_reward: false
   # --- Liger Triton GRPO Loss (set to true to enable) ---
   use_liger_grpo_loss: false
   # Liger-specific config (only used when use_liger_grpo_loss=true):
   clip_eps_low: 0.2
-  clip_eps_high: 0.2
+  clip_eps_high: 0.27
   beta: 0.01       # KL penalty coefficient for Liger loss
   temperature: 1.0
   loss_type: "grpo"  # grpo, ipo, simpo
@@ -113,7 +113,7 @@ policy:
   train_micro_batch_size: 4
   generation_batch_size: 8
   logprob_batch_size: ${policy.train_micro_batch_size}
-  max_total_sequence_length: 8192
+  max_total_sequence_length: 16384
   precision: "bfloat16"
   logprob_chunk_size: null
   offload_optimizer_for_logprob: false
@@ -142,11 +142,11 @@ policy:
   megatron_cfg:
     enabled: true
     empty_unused_memory_level: 1
-    activation_checkpointing: false
+    activation_checkpointing: true
     converter_type: "GPTOSSForCausalLM"
     tensor_model_parallel_size: 1
     expert_tensor_parallel_size: 1
-    expert_model_parallel_size: 1
+    expert_model_parallel_size: 2
     pipeline_model_parallel_size: 1
     num_layers_in_first_pipeline_stage: null
     num_layers_in_last_pipeline_stage: null
@@ -157,14 +157,14 @@ policy:
     moe_router_dtype: "fp64"
     moe_router_load_balancing_type: "none"
     moe_router_bias_update_rate: 0.0
-    moe_permute_fusion: false # better to do true?
+    moe_permute_fusion: true # better to do true?
     apply_rope_fusion: true
     bias_activation_fusion: true
-    defer_fp32_logits: false # better to do true?
+    defer_fp32_logits: true # better to do true?
     moe_per_layer_logging: false
     moe_enable_deepep: false
     moe_token_dispatcher_type: "alltoall"
-    moe_shared_expert_overlap: false # better to do true?
+    moe_shared_expert_overlap: true # better to do true?
     peft:
       enabled: false
       target_modules: []
@@ -178,7 +178,7 @@ policy:
       a2a_experimental: false
       lora_dtype: null
     optimizer:
-      optimizer: "adamW"
+      optimizer: "adam"
       lr: 5.0e-7
       min_lr: 5.0e-8
       weight_decay: 0.01
@@ -192,8 +192,8 @@ policy:
       use_distributed_optimizer: true
       use_precision_aware_optimizer: true
       clip_grad: ${policy.max_grad_norm}
-      optimizer_cpu_offload: false
-      optimizer_offload_fraction: 0.0
+      optimizer_cpu_offload: true
+      optimizer_offload_fraction: 1.0
     scheduler:
       start_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
       end_weight_decay: ${policy.megatron_cfg.optimizer.weight_decay}
@@ -216,9 +216,9 @@ policy:
     env_vars: null
 
   dynamic_batching:
-    enabled: false
-    train_mb_tokens: ${mul:${policy.max_total_sequence_length}, ${policy.train_micro_batch_size}}
-    logprob_mb_tokens: ${mul:${policy.max_total_sequence_length}, ${policy.logprob_batch_size}}
+    enabled: true
+    train_mb_tokens: 16384
+    logprob_mb_tokens: 32768
     sequence_length_round: 64
 
   sequence_packing:
@@ -255,7 +255,7 @@ policy:
 
   generation:
     backend: "vllm"
-    max_new_tokens: 2048
+    max_new_tokens: 4096
     temperature: 1.0
     top_p: 0.95
     top_k: null
@@ -264,7 +264,7 @@ policy:
     mcore_generation_config:
       buffer_size_gb: 20
       buffer_guaranteed_fraction: 0.1
-      num_cuda_graphs: 16
+      num_cuda_graphs: 512
       block_size_tokens: 256
       use_cuda_graphs_for_non_decode_steps: true
       enable_chunked_prefill: true
@@ -277,14 +277,14 @@ policy:
       tensor_parallel_size: 1
       pipeline_parallel_size: 1
       expert_parallel_size: 1
-      gpu_memory_utilization: 0.6
+      gpu_memory_utilization: 0.7
       max_model_len: ${policy.max_total_sequence_length}
       enforce_eager: false
       use_deep_gemm: false
       num_last_layers_in_bf16: 0
       num_first_layers_in_bf16: 0
       enable_vllm_metrics_logger: true
-      vllm_metrics_logger_interval: 0.5
+      vllm_metrics_logger_interval: 1
     vllm_kwargs: {}
     colocated:
       enabled: true
@@ -459,8 +459,8 @@ env:
     num_workers: 4
     max_turns: 10
     chat_protocol: "gpt_oss"
-    tools_file: null  # null = TDC tools loaded from code (get_default_tools: rdkit, standardize, etc.)
-    reward_fn: null   # null = use default reward function
+    tools_file: null
+    reward_fn: "nemo_rl.environments.tdc_environment.compute_reward"
 
 # --- Logger ---
 logger:
@@ -486,5 +486,5 @@ logger:
     flush_interval: 10
 
 cluster:
-  gpus_per_node: 1
+  gpus_per_node: 2
   num_nodes: 1

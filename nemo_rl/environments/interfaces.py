@@ -39,6 +39,11 @@ class EnvironmentReturn(NamedTuple, Generic[MetadataT]):
     rewards: the rewards for this turn.
     terminateds: whether the episode ended this turn.
     answers: the answers for this turn.
+    observation_token_ids: Optional canonical token IDs for observations.
+                           When provided, the rollout code uses these directly
+                           instead of re-tokenizing the observation text. This
+                           avoids lossy text→tokenize round-trips for special
+                           tokens (e.g. <|start|>, <|im_start|>).
     """
 
     observations: list[dict[str, str]]
@@ -46,7 +51,8 @@ class EnvironmentReturn(NamedTuple, Generic[MetadataT]):
     next_stop_strings: list[list[str] | None] | list[None]
     rewards: Tensor  ## Shape [B] for single-reward, [B, num_reward_components] for multi-reward (e.g. GDPO)
     terminateds: Tensor
-    answers: list[str | None] | None
+    answers: list[str | None] | None = None
+    observation_token_ids: list[list[int] | None] | None = None
 
 
 class EnvironmentInterface(abc.ABC, Generic[MetadataT]):

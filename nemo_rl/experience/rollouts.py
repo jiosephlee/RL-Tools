@@ -93,7 +93,9 @@ def generate_responses(
         generated_part = full_output[input_len:total_length]
         generated_ids.append(generated_part)
 
-    generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+    # Decode with special tokens preserved so environments can parse
+    # protocol-specific markers (e.g. <|channel|>, <|call|>, <|im_end|>).
+    generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=False)
 
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(
@@ -195,7 +197,9 @@ async def generate_responses_async(
         generated_part = full_output[input_len:total_length]
         generated_ids.append(generated_part)
 
-    generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+    # Decode with special tokens preserved so environments can parse
+    # protocol-specific markers (e.g. <|channel|>, <|call|>, <|im_end|>).
+    generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=False)
 
     # Append to message log
     for i, (text, input_length, total_length) in enumerate(
@@ -296,22 +300,25 @@ def calculate_rewards(
     all_metadata = []  # Store extracted metadata
     all_indices_order = []
     all_answers = []
+    all_obs_token_ids = []
 
     for future, result in zip(futures, results):
         indices = future_to_indices[future]
         # Environment step returns: EnvironmentReturn
-        (
-            env_observations,
-            metadata,
-            next_stop_strings,
-            task_rewards,
-            terminateds,
-            answers,
-        ) = result
+        env_observations = result.observations
+        metadata = result.metadata
+        next_stop_strings = result.next_stop_strings
+        task_rewards = result.rewards
+        terminateds = result.terminateds
+        answers = result.answers
+        obs_token_ids = result.observation_token_ids
+
         if next_stop_strings is None:
             next_stop_strings = [None] * len(task_rewards)
         if answers is None:
             answers = [None] * len(task_rewards)
+        if obs_token_ids is None:
+            obs_token_ids = [None] * len(task_rewards)
 
         # Store results with their original indices
         for i, idx in enumerate(indices):
@@ -322,6 +329,7 @@ def calculate_rewards(
             all_next_stop_strings.append(next_stop_strings[i])
             all_metadata.append(metadata[i])
             all_answers.append(answers[i])
+            all_obs_token_ids.append(obs_token_ids[i])
 
     # Sort results by original index to maintain order
     sorted_indices = sorted(
@@ -339,6 +347,7 @@ def calculate_rewards(
     next_stop_strings = [all_next_stop_strings[i] for i in sorted_indices]
     metadata = [all_metadata[i] for i in sorted_indices]  # Sort metadata
     answers = [all_answers[i] for i in sorted_indices]
+    obs_token_ids = [all_obs_token_ids[i] for i in sorted_indices]
 
     return EnvironmentReturn(
         observations=env_observations,
@@ -347,6 +356,7 @@ def calculate_rewards(
         rewards=rewards,
         terminateds=terminateds,
         answers=answers,
+        observation_token_ids=obs_token_ids,
     )
 
 
@@ -492,15 +502,19 @@ def run_multi_turn_rollout(
         # Update message log for ALL active samples with env observation
         # This must happen BEFORE filtering based on done flags
         truncation_mask = torch.zeros_like(env_output.terminateds, dtype=torch.bool)
+        obs_token_ids = env_output.observation_token_ids
         for i, global_idx in enumerate(active_indices.tolist()):
             env_obs_content = env_output.observations[i]["content"]
-            # Tokenize the raw content from the environment
-            # TODO @sahilj: handle if we want these subsequent messages to have a chat template
-            tokenized_obs = tokenizer(
-                env_obs_content, return_tensors="pt", add_special_tokens=False
-            ).input_ids[0]
-            # tokenizer returns torch.float32 when env_obs_content is empty
-            tokenized_obs = tokenized_obs.to(dtype=torch.int64)
+            # Use canonical token IDs when available (avoids lossy text→tokenize
+            # round-trip for special tokens like <|start|>, <|im_start|>).
+            if obs_token_ids is not None and obs_token_ids[i] is not None:
+                tokenized_obs = torch.tensor(obs_token_ids[i], dtype=torch.int64)
+            else:
+                tokenized_obs = tokenizer(
+                    env_obs_content, return_tensors="pt", add_special_tokens=False
+                ).input_ids[0]
+                # tokenizer returns torch.float32 when env_obs_content is empty
+                tokenized_obs = tokenized_obs.to(dtype=torch.int64)
 
             # check if new message overflows max_seq_len
             if (
@@ -789,10 +803,15 @@ async def run_sample_multi_turn_rollout(
         # Check termination
         terminated = env_output.terminateds[0].item()
         env_obs_content = env_output.observations[0]["content"]
-        # Tokenize environment response
-        tokenized_obs = tokenizer(
-            env_obs_content, return_tensors="pt", add_special_tokens=False
-        ).input_ids[0]
+        # Use canonical token IDs when available (avoids lossy text→tokenize
+        # round-trip for special tokens like <|start|>, <|im_start|>).
+        obs_token_ids = env_output.observation_token_ids
+        if obs_token_ids is not None and obs_token_ids[0] is not None:
+            tokenized_obs = torch.tensor(obs_token_ids[0], dtype=torch.int64)
+        else:
+            tokenized_obs = tokenizer(
+                env_obs_content, return_tensors="pt", add_special_tokens=False
+            ).input_ids[0]
 
         # Check for sequence length overflow
         if input_lengths + gen_token_count + len(tokenized_obs) >= max_seq_len:

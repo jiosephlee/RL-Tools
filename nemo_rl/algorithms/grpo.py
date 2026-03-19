@@ -809,6 +809,40 @@ def setup(
 
 
 # ===============================================================================
+# GPU Peak Memory Tracker
+# ===============================================================================
+
+
+class GPUPeakMemoryTracker:
+    """Track per-stage GPU peak memory on policy workers across a training step.
+
+    Calls ``snapshot_and_reset_peak_gpu_memory_mb`` on all workers at each stage
+    boundary, recording the *max across workers* for every stage.  Results are
+    returned as a flat dict ready for ``logger.log_metrics``.
+    """
+
+    def __init__(self, policy: Policy) -> None:
+        self._policy = policy
+        self._stage_peaks: dict[str, float] = {}
+
+    def reset(self) -> None:
+        """Start a new step — clear accumulated data and reset worker counters."""
+        self._stage_peaks = {}
+        self._policy.run_all_workers_single_data("reset_peak_memory_stats")
+
+    def snapshot(self, stage_name: str) -> None:
+        """Record peak GPU memory for *stage_name* since the last snapshot/reset."""
+        peaks = self._policy.run_all_workers_single_data(
+            "snapshot_and_reset_peak_gpu_memory_mb"
+        )
+        self._stage_peaks[stage_name] = max(peaks)
+
+    def get_metrics(self) -> dict[str, float]:
+        """Return ``{stage_name: peak_mb, ...}`` suitable for wandb logging."""
+        return dict(self._stage_peaks)
+
+
+# ===============================================================================
 # Core Algorithm Functions
 # ===============================================================================
 
@@ -1692,6 +1726,9 @@ def grpo_train(
     # Initialize advantage estimator
     adv_estimator = _create_advantage_estimator(master_config)
 
+    # GPU peak memory tracker (per-stage, logged to wandb)
+    gpu_peak_tracker = GPUPeakMemoryTracker(policy)
+
     # Run validation at the start if configured
     # TODO: Add validation with kv scales if needed
     if val_at_start and current_step == 0:
@@ -1754,6 +1791,9 @@ def grpo_train(
             val_metrics, validation_timings = None, None
 
             with timer.time("total_step_time"):
+                # Reset GPU peak memory tracking for this step
+                gpu_peak_tracker.reset()
+
                 # Prepare batch
                 print("▶ Preparing batch...", flush=True)
                 with timer.time("data_processing"):
@@ -1821,6 +1861,8 @@ def grpo_train(
                         if colocated_inference:
                             policy.offload_after_refit()  # unload optimizer to make space for generation
                         policy_generation.prepare_for_generation()
+
+                gpu_peak_tracker.snapshot("prepare_for_generation")
 
                 dynamic_sampling_num_gen_batches += 1
                 if dynamic_sampling_num_gen_batches == 1 and hasattr(
@@ -1910,6 +1952,8 @@ def grpo_train(
                     )
                     if total_steps == 0:
                         _write_dataloader_log(logger, batch, total_steps + 1)
+
+                gpu_peak_tracker.snapshot("generation")
 
                 repeated_batch = scale_rewards(
                     repeated_batch, master_config["grpo"]["reward_scaling"]
@@ -2106,6 +2150,8 @@ def grpo_train(
                         ],
                     )
 
+                gpu_peak_tracker.snapshot("logprob_computation")
+
                 # Compute advantages with adv_estimator using correct mask and logprobs
                 with timer.time("advantage_calculation"):
                     print("▶ Computing advantages...", flush=True)
@@ -2158,6 +2204,8 @@ def grpo_train(
                         loss_fn,
                         timer=timer,
                     )
+
+                gpu_peak_tracker.snapshot("policy_training")
 
                 # Recompute KV scales after policy training if needed
                 if sync_kv_scales:
@@ -2503,9 +2551,21 @@ def grpo_train(
                 train_results, metrics, timing_metrics, master_config
             )
 
+            # Print GPU peak memory per stage
+            gpu_peaks = gpu_peak_tracker.get_metrics()
+            if gpu_peaks:
+                print("\n🔋 GPU Peak Memory (max across policy workers):")
+                for stage, peak_mb in sorted(gpu_peaks.items(), key=lambda x: -x[1]):
+                    print(f"  • {stage}: {peak_mb / 1024:.2f} GB")
+
             logger.log_metrics(metrics, total_steps + 1, prefix="train")
             logger.log_metrics(
                 performance_metrics, total_steps + 1, prefix="performance"
+            )
+            logger.log_metrics(
+                gpu_peak_tracker.get_metrics(),
+                total_steps + 1,
+                prefix="gpu_peak_memory_mb",
             )
             # step_finished=True here since this is the final log of our current step.
             logger.log_metrics(
@@ -2579,6 +2639,7 @@ def validate(
         all_message_logs = []  # Collect all message logs
         all_extra_env_infos = []  # Per-sample env info for per-task metrics
 
+        additional_metrics_to_report: dict[str, Any] = {}
         max_batches = (
             master_config["grpo"]["max_val_samples"]
             // master_config["grpo"]["val_batch_size"]

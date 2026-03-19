@@ -102,6 +102,26 @@ class ChatProtocol(ABC):
             Bridge text for concatenation.
         """
 
+    def render_tool_feedback_token_ids(
+        self,
+        tool_results: list[dict[str, str]],
+        tokenizer: Any = None,
+    ) -> list[int] | None:
+        """Return canonical token IDs for tool feedback, or None to fall back to text tokenization.
+
+        When special tokens in the feedback text may not round-trip correctly
+        through text → tokenize (e.g. harmony <|start|>, <|end|>), subclasses
+        should override this to produce exact token IDs.
+
+        Args:
+            tool_results: List of dicts with "name" and "content" keys.
+            tokenizer: HuggingFace tokenizer (needed to encode text segments).
+
+        Returns:
+            List of token IDs, or None if text tokenization is acceptable.
+        """
+        return None
+
     @property
     def stop_strings(self) -> list[str]:
         """Stop strings that signal end of assistant generation for this protocol."""
@@ -408,6 +428,50 @@ class GPTOSSProtocol(ChatProtocol):
             )
         feedback += "<|start|>assistant"
         return feedback
+
+    def render_tool_feedback_token_ids(
+        self,
+        tool_results: list[dict[str, str]],
+        tokenizer: Any = None,
+    ) -> list[int] | None:
+        """Canonical token IDs for GPT-OSS tool feedback via harmony encoder.
+
+        Uses ``openai_harmony``'s encoder to produce the exact token IDs the
+        model was trained with, avoiding the lossy text → HF tokenize
+        round-trip for special tokens like ``<|start|>``, ``<|end|>``.
+        """
+        if tokenizer is None:
+            return None
+        try:
+            from openai_harmony import (
+                Author,
+                HarmonyEncodingName,
+                Message,
+                Role,
+                load_harmony_encoding,
+            )
+        except ImportError:
+            logger.warning("openai_harmony not available; falling back to text tokenization")
+            return None
+
+        encoding = load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
+
+        token_ids: list[int] = []
+        for tr in tool_results:
+            msg = (
+                Message.from_author_and_content(
+                    Author.new(Role.TOOL, f"functions.{tr['name']}"),
+                    tr["content"],
+                )
+                .with_channel("commentary")
+                .with_recipient("assistant")
+            )
+            token_ids.extend(encoding.render(msg))
+
+        # Append <|start|>assistant generation prompt
+        assistant_header_ids = tokenizer.encode("<|start|>assistant", add_special_tokens=False)
+        token_ids.extend(assistant_header_ids)
+        return token_ids
 
     @property
     def stop_strings(self) -> list[str]:

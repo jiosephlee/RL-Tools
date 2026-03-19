@@ -8,15 +8,39 @@
 #   MULTI_TURN=0 bash scripts/run_tdc_local_uv.sh             # single-turn TDC
 
 set -euo pipefail
-# unset TMPDIR
-# unset RAY_TMPDIR    
+
+# Load CUDA 12.8 to match torch cu128; explicitly export CUDA_HOME
+# so it propagates through Ray to _env_builder worker subprocesses
+module load cuda/12.8.1 2>/dev/null || true
+export CUDA_HOME="${CUDA_HOME:-$(dirname "$(dirname "$(which nvcc)")")}"
+echo "CUDA_HOME=$CUDA_HOME  (nvcc: $(nvcc --version 2>&1 | grep release | awk '{print $5}' | tr -d ','))"
+
+# cuDNN + NCCL headers needed by transformer-engine (megatron dependency)
+CUDNN_HOME="/vast/parcc/spack/sw/apps/linux-sapphirerapids/cudnn-8.9.7.29-12-xfuy2r7bhizjohnv6gazm6ynxpjhmfxi"
+# NCCL headers come from pip-installed nvidia-nccl-cu12 in the main venv
+NCCL_INCLUDE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.venv/lib/python3.12/site-packages/nvidia/nccl/include"
+export CPLUS_INCLUDE_PATH="${CUDNN_HOME}/include:${NCCL_INCLUDE}${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
+export LIBRARY_PATH="${CUDNN_HOME}/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${CUDNN_HOME}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Skip uv cache to avoid stale CUDA builds (e.g. deep_gemm built against wrong CUDA)
+export UV_NO_CACHE=1
+
+# Isolate JIT caches by CUDA version to avoid cross-contamination
+CUDA_VER=$(nvcc --version 2>/dev/null | grep -oP 'release \K[0-9]+\.[0-9]+' || echo "unknown")
+export FLASHINFER_CACHE_DIR="${HOME}/.cache/flashinfer-cu${CUDA_VER}"
+export TRITON_CACHE_DIR="${HOME}/.cache/triton-cu${CUDA_VER}"
+export TORCHINDUCTOR_CACHE_DIR="${HOME}/.cache/torch_inductor-cu${CUDA_VER}"
+
+unset TMPDIR
+unset RAY_TMPDIR
 # Also try increasing the socket timeout
-export RAY_BACKEND_LOG_LEVEL=warning
+unset RAY_BACKEND_LOG_LEVEL  # unset so Raylet logs at INFO — needed to debug agent startup
 # export NEMO_RL_PY_EXECUTABLES_SYSTEM=1 
 ### ARGS ###
 MODEL="${MODEL:-unsloth/gpt-oss-20b-BF16}"
-NUM_GPUS="${NUM_GPUS:-1}"
-MAX_STEPS="${MAX_STEPS:-10}"
+NUM_GPUS="${NUM_GPUS:-2}"
+MAX_STEPS="${MAX_STEPS:-100000000}"
 MAX_TURNS="${MAX_TURNS:-30}"
 MULTI_TURN="${MULTI_TURN:-1}"
 LIGER_GRPO_LOSS="${LIGER_GRPO_LOSS:-0}"
@@ -48,13 +72,19 @@ BALANCED_SAMPLING="${BALANCED_SAMPLING:-0}"
 # unset VIRTUAL_ENV
 
 # Put venvs and cache on project disk to avoid home quota issues
-export UV_PROJECT_ENVIRONMENT=/vast/projects/myatskar/design-documents/nemo-rl-venv
-export UV_CACHE_DIR=/vast/projects/myatskar/design-documents/.uv-cache
-export NEMO_RL_VENV_DIR=/vast/projects/myatskar/design-documents/nemo-rl-venvs
+# export UV_PROJECT_ENVIRONMENT=/vast/projects/myatskar/design-documents/nemo-rl-venv
+# export UV_CACHE_DIR=/vast/projects/myatskar/design-documents/.uv-cache
+# export NEMO_RL_VENV_DIR=/vast/projects/myatskar/design-documents/nemo-rl-venvs
 export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-10.0}"
 
-NUM_GPUS_DETECTED=1
-# NUM_GPUS_DETECTED="${SLURM_GPUS_ON_NODE:-$(nvidia-smi -L 2>/dev/null | wc -l)}"
+# CCCL headers (cuda/std/*) live under include/cccl/ in spack CUDA installs;
+# deep-gemm/cutlass expects them at include/cuda/std/, so add the cccl path.
+if [ -d "${CUDA_HOME}/include/cccl" ]; then
+    export CPLUS_INCLUDE_PATH="${CUDA_HOME}/include/cccl${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
+fi
+
+
+NUM_GPUS_DETECTED="${SLURM_GPUS_ON_NODE:-$(nvidia-smi -L 2>/dev/null | wc -l)}"
 
 ### BUILD OVERRIDES ###
 OVERRIDES=(
@@ -141,6 +171,14 @@ echo "----------------------------------------"
 echo "Overrides:"
 printf "  %s\n" "${OVERRIDES[@]}"
 echo "========================================"
+
+### CLEANUP STALE RAY STATE ###
+# Stop any surviving Ray processes from a previous Ctrl+C
+uv run python -m ray.scripts.scripts stop --force 2>/dev/null || true
+sleep 1
+rm -rf /tmp/ray/session_* /tmp/ray/session_latest 2>/dev/null || true
+# Clean up stale Ray/Plasma shared memory objects in /dev/shm (accumulate after Ctrl+C)
+rm -f /dev/shm/plasma_* /dev/shm/ray_* 2>/dev/null || true
 
 ### RUN ###
 echo "running"

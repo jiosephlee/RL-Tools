@@ -70,6 +70,10 @@ def tdc_data_processor(
         "smiles": datum_dict.get("smiles", ""),
         "label": datum_dict.get("label", ""),
         "task": datum_dict.get("task", ""),
+        # Fields required by ToolCallingEnvironment for multi-turn rollouts
+        "turn_count": 0,
+        "tool_results": [],
+        "format_reward": 0.0,
     }
 
     output: DatumSpec = {

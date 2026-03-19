@@ -13,6 +13,7 @@
 # limitations under the License.
 import importlib
 import os
+import sys
 import time
 from copy import deepcopy
 from dataclasses import dataclass
@@ -533,6 +534,28 @@ class RayWorkerGroup:
                 }
                 runtime_env["env_vars"]["VIRTUAL_ENV"] = py_executable
                 runtime_env["env_vars"]["UV_PROJECT_ENVIRONMENT"] = py_executable
+
+                # Add the venv's nvidia package lib dirs to LD_LIBRARY_PATH so
+                # native extensions (e.g. vllm._C) can find libraries like
+                # libcudart at process startup time.
+                venv_site_pkgs = os.path.join(
+                    os.path.dirname(os.path.dirname(py_executable)),
+                    "lib",
+                    f"python{sys.version_info.major}.{sys.version_info.minor}",
+                    "site-packages",
+                    "nvidia",
+                )
+                if os.path.isdir(venv_site_pkgs):
+                    nvidia_lib_dirs = [
+                        os.path.join(venv_site_pkgs, d, "lib")
+                        for d in os.listdir(venv_site_pkgs)
+                        if os.path.isdir(os.path.join(venv_site_pkgs, d, "lib"))
+                    ]
+                    if nvidia_lib_dirs:
+                        existing = runtime_env["env_vars"].get("LD_LIBRARY_PATH", "")
+                        runtime_env["env_vars"]["LD_LIBRARY_PATH"] = (
+                            ":".join(nvidia_lib_dirs) + (":" + existing if existing else "")
+                        )
 
                 extra_options = {"runtime_env": runtime_env, "name": name}
 
