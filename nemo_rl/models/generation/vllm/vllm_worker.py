@@ -112,6 +112,9 @@ class BaseVllmGenerationWorker:
         env_vars["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
         # Skip vllm P2P check and rely on driver to report peer to peer capability.
         env_vars["VLLM_SKIP_P2P_CHECK"] = "1"
+        # Suppress noisy vLLM INFO logs from cluttering the driver terminal.
+        # Full logs remain in Ray worker log files at /tmp/ray/session_latest/logs/.
+        env_vars.setdefault("VLLM_LOGGING_LEVEL", "WARNING")
 
         return resources, env_vars, init_kwargs
 

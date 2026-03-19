@@ -99,11 +99,17 @@ def init_ray(log_dir: Optional[str] = None) -> None:
         log_dir: Optional directory to store Ray logs and temp files.
     """
     # Set up runtime environment
-    env_vars = dict(os.environ)
-    env_vars.pop("RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES", None)
-    runtime_env = {
-        "env_vars": env_vars,  # Pass thru all user environment variables
-    }
+    # NOTE: Do NOT pass dict(os.environ) as env_vars here. Passing the full
+    # environment (~200+ vars on SLURM nodes) through runtime_env forces the
+    # runtime_env_agent to deserialize/validate a large payload on startup,
+    # which can cause it to crash or timeout before the 30s Raylet deadline.
+    # Workers already receive their full env vars per-worker in
+    # RayWorkerGroup._start_workers() (worker_groups.py), so cluster-level
+    # passthrough is unnecessary. OS-level process inheritance handles the rest.
+    runtime_env: dict = {}
+
+    # Resolve temp dir: explicit log_dir > RAY_TMPDIR env var > None (Ray default)
+    temp_dir = os.path.abspath(log_dir) if log_dir else os.environ.get("RAY_TMPDIR")
 
     cvd = os.environ.get("CUDA_VISIBLE_DEVICES", "ALL")
     # sort cvd to ensure consistent tag
@@ -118,7 +124,7 @@ def init_ray(log_dir: Optional[str] = None) -> None:
             log_to_driver=True,
             include_dashboard=False,
             runtime_env=runtime_env,
-            _temp_dir=os.path.abspath(log_dir) if log_dir else None,
+            _temp_dir=temp_dir,
         )
 
         cluster_res = ray.cluster_resources()
@@ -165,11 +171,23 @@ def init_ray(log_dir: Optional[str] = None) -> None:
     local_runtime_env = dict(runtime_env)
     local_runtime_env.pop("working_dir", None)
 
+    # Detect GPU count via torch since Ray's auto-detection may misidentify
+    # accelerators on certain driver/CUDA versions (e.g. labeling GPUs as TPUs).
+    num_gpus = None
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            num_gpus = torch.cuda.device_count()
+    except ImportError:
+        pass
+
     ray.init(
         log_to_driver=True,
         include_dashboard=True,
+        num_gpus=num_gpus,
         runtime_env=local_runtime_env,
-        _temp_dir=os.path.abspath(log_dir) if log_dir else None,
+        _temp_dir=temp_dir,
         resources={cvd_tag: 1},
     )
     logger.info(
